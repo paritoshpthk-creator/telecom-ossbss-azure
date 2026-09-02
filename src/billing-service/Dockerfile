@@ -2,7 +2,7 @@ FROM eclipse-temurin:17-jre
 
 WORKDIR /app
 
-COPY target/billing-service-1.0.0.jar app.jar
+COPY src/billing-service/target/billing-service-1.0.0.jar app.jar
 
 EXPOSE 8081
 
