@@ -151,7 +151,7 @@ stages:
         containerRegistry: 'ACR-Service-Connection'
         repository: 'billing-service'
         Dockerfile: 'src/billing-service/Dockerfile'
-        buildContext: 'src/billing-service'
+        buildContext: '$(Build.SourcesDirectory)'
         tags: |
           $(imageTag)
           latest
@@ -167,7 +167,7 @@ stages:
         containerRegistry: 'ACR-Service-Connection'
         repository: 'cdr-service'
         Dockerfile: 'src/cdr-service/Dockerfile'
-        buildContext: 'src/cdr-service'
+        buildContext: '$(Build.SourcesDirectory)'
         tags: |
           $(imageTag)
           latest
@@ -183,7 +183,7 @@ stages:
         containerRegistry: 'ACR-Service-Connection'
         repository: 'customer-service'
         Dockerfile: 'src/customer-service/Dockerfile'
-        buildContext: 'src/customer-service'
+        buildContext: '$(Build.SourcesDirectory)'
         tags: |
           $(imageTag)
           latest
