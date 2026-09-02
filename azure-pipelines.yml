@@ -57,12 +57,40 @@ stages:
   displayName: 'Build and Push Docker Images'
   dependsOn: Build
   condition: succeeded()
+
   jobs:
   - job: DockerBuild
     displayName: 'Build Docker Images'
+
     steps:
 
     - checkout: self
+
+    # Build JAR files again because this is a fresh agent
+    - task: JavaToolInstaller@0
+      displayName: 'Install Java 17'
+      inputs:
+        versionSpec: '17'
+        jdkArchitectureOption: 'x64'
+        jdkSourceOption: 'PreInstalled'
+
+    - script: |
+        java -version
+        mvn -version
+        mvn clean package -DskipTests
+      displayName: 'Build JAR Files'
+
+    # Verify JAR files before Docker build
+    - script: |
+        echo "Billing JAR:"
+        ls -lh src/billing-service/target/
+
+        echo "CDR JAR:"
+        ls -lh src/cdr-service/target/
+
+        echo "Customer JAR:"
+        ls -lh src/customer-service/target/
+      displayName: 'Verify JAR Files'
 
     - task: Docker@2
       displayName: 'Build and Push Billing Image'
@@ -98,9 +126,7 @@ stages:
         buildContext: 'src/customer-service'
         tags: |
           $(imageTag)
-          latest
-
-# ============================================================
+          latest# ============================================================
 # STAGE 3 - DEPLOY TO AKS
 # ============================================================
 - stage: Deploy
