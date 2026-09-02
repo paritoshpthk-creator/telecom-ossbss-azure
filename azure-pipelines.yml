@@ -1,0 +1,221 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  acrLoginServer: 'acrtelecomossbss01.azurecr.io'
+  acrName: 'acrtelecomossbss01'
+  imageTag: '$(Build.BuildId)'
+
+  aksResourceGroup: 'rg-telecom-ossbss-dev'
+  aksClusterName: 'aks-telecom-dev'
+  kubernetesNamespace: 'telecom'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+
+# ============================================================
+# STAGE 1 - BUILD & TEST
+# ============================================================
+- stage: Build
+  displayName: 'Build and Test'
+  jobs:
+  - job: MavenBuild
+    displayName: 'Maven Build'
+    steps:
+
+    - checkout: self
+
+    - task: JavaToolInstaller@0
+      displayName: 'Install Java 17'
+      inputs:
+        versionSpec: '17'
+        jdkArchitectureOption: 'x64'
+        jdkSourceOption: 'PreInstalled'
+
+    - script: |
+        java -version
+        mvn -version
+      displayName: 'Verify Java and Maven'
+
+    - script: |
+        mvn clean test package
+      displayName: 'Maven Build and Tests'
+
+# ============================================================
+# STAGE 2 - DOCKER BUILD & PUSH
+# ============================================================
+- stage: Docker
+  displayName: 'Build and Push Docker Images'
+  dependsOn: Build
+  condition: succeeded()
+  jobs:
+  - job: DockerBuild
+    displayName: 'Build Docker Images'
+    steps:
+
+    - checkout: self
+
+    - task: Docker@2
+      displayName: 'Build and Push Billing Image'
+      inputs:
+        command: buildAndPush
+        containerRegistry: 'ACR-Service-Connection'
+        repository: 'billing-service'
+        Dockerfile: 'src/billing-service/Dockerfile'
+        buildContext: 'src/billing-service'
+        tags: |
+          $(imageTag)
+          latest
+
+    - task: Docker@2
+      displayName: 'Build and Push CDR Image'
+      inputs:
+        command: buildAndPush
+        containerRegistry: 'ACR-Service-Connection'
+        repository: 'cdr-service'
+        Dockerfile: 'src/cdr-service/Dockerfile'
+        buildContext: 'src/cdr-service'
+        tags: |
+          $(imageTag)
+          latest
+
+    - task: Docker@2
+      displayName: 'Build and Push Customer Image'
+      inputs:
+        command: buildAndPush
+        containerRegistry: 'ACR-Service-Connection'
+        repository: 'customer-service'
+        Dockerfile: 'src/customer-service/Dockerfile'
+        buildContext: 'src/customer-service'
+        tags: |
+          $(imageTag)
+          latest
+
+# ============================================================
+# STAGE 3 - DEPLOY TO AKS
+# ============================================================
+- stage: Deploy
+  displayName: 'Deploy to AKS'
+  dependsOn: Docker
+  condition: succeeded()
+  jobs:
+  - deployment: AKSDeployment
+    displayName: 'Deploy Telecom OSS/BSS'
+    environment: 'telecom-aks'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+
+          - checkout: self
+
+          - task: KubernetesManifest@1
+            displayName: 'Deploy Billing Service'
+            inputs:
+              action: 'deploy'
+              connectionType: 'azureResourceManager'
+              azureSubscriptionConnection: 'Azure-Service-Connection'
+              azureResourceGroup: '$(aksResourceGroup)'
+              kubernetesCluster: '$(aksClusterName)'
+              namespace: '$(kubernetesNamespace)'
+              manifests: |
+                k8s/namespace.yaml
+                k8s/configmap.yaml
+                k8s/secret.yaml
+                k8s/billing-deployment.yaml
+                k8s/billing-service.yaml
+              containers: |
+                $(acrLoginServer)/billing-service:$(imageTag)
+
+          - task: KubernetesManifest@1
+            displayName: 'Deploy CDR Service'
+            inputs:
+              action: 'deploy'
+              connectionType: 'azureResourceManager'
+              azureSubscriptionConnection: 'Azure-Service-Connection'
+              azureResourceGroup: '$(aksResourceGroup)'
+              kubernetesCluster: '$(aksClusterName)'
+              namespace: '$(kubernetesNamespace)'
+              manifests: |
+                k8s/cdr-deployment.yaml
+                k8s/cdr-service.yaml
+              containers: |
+                $(acrLoginServer)/cdr-service:$(imageTag)
+
+          - task: KubernetesManifest@1
+            displayName: 'Deploy Customer Service'
+            inputs:
+              action: 'deploy'
+              connectionType: 'azureResourceManager'
+              azureSubscriptionConnection: 'Azure-Service-Connection'
+              azureResourceGroup: '$(aksResourceGroup)'
+              kubernetesCluster: '$(aksClusterName)'
+              namespace: '$(kubernetesNamespace)'
+              manifests: |
+                k8s/customer-deployment.yaml
+                k8s/customer-service.yaml
+              containers: |
+                $(acrLoginServer)/customer-service:$(imageTag)
+
+          - task: KubernetesManifest@1
+            displayName: 'Deploy Ingress'
+            inputs:
+              action: 'deploy'
+              connectionType: 'azureResourceManager'
+              azureSubscriptionConnection: 'Azure-Service-Connection'
+              azureResourceGroup: '$(aksResourceGroup)'
+              kubernetesCluster: '$(aksClusterName)'
+              namespace: '$(kubernetesNamespace)'
+              manifests: |
+                k8s/ingress.yaml
+
+# ============================================================
+# STAGE 4 - VERIFY
+# ============================================================
+- stage: Verify
+  displayName: 'Verify Deployment'
+  dependsOn: Deploy
+  condition: succeeded()
+  jobs:
+  - job: VerifyAKS
+    displayName: 'Verify AKS Workloads'
+    steps:
+
+    - task: Kubernetes@1
+      displayName: 'Check Pods'
+      inputs:
+        connectionType: 'Azure Resource Manager'
+        azureSubscriptionEndpoint: 'Azure-Service-Connection'
+        azureResourceGroup: '$(aksResourceGroup)'
+        kubernetesCluster: '$(aksClusterName)'
+        command: 'get'
+        arguments: 'pods -n $(kubernetesNamespace) -o wide'
+
+    - task: Kubernetes@1
+      displayName: 'Check Services'
+      inputs:
+        connectionType: 'Azure Resource Manager'
+        azureSubscriptionEndpoint: 'Azure-Service-Connection'
+        azureResourceGroup: '$(aksResourceGroup)'
+        kubernetesCluster: '$(aksClusterName)'
+        command: 'get'
+        arguments: 'svc -n $(kubernetesNamespace)'
+
+    - task: Kubernetes@1
+      displayName: 'Check Ingress'
+      inputs:
+        connectionType: 'Azure Resource Manager'
+        azureSubscriptionEndpoint: 'Azure-Service-Connection'
+        azureResourceGroup: '$(aksResourceGroup)'
+        kubernetesCluster: '$(aksClusterName)'
+        command: 'get'
+        arguments: 'ingress -n $(kubernetesNamespace)'

@@ -1,0 +1,62 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: billing-ingress
+  namespace: telecom
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /api/billing
+spec:
+  ingressClassName: webapprouting.kubernetes.azure.com
+  rules:
+    - host: telecom.local
+      http:
+        paths:
+          - path: /billing
+            pathType: Prefix
+            backend:
+              service:
+                name: billing-service
+                port:
+                  number: 8081
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cdr-ingress
+  namespace: telecom
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /api/cdr
+spec:
+  ingressClassName: webapprouting.kubernetes.azure.com
+  rules:
+    - host: telecom.local
+      http:
+        paths:
+          - path: /cdr
+            pathType: Prefix
+            backend:
+              service:
+                name: cdr-service
+                port:
+                  number: 8081
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: customer-ingress
+  namespace: telecom
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /api/customer
+spec:
+  ingressClassName: webapprouting.kubernetes.azure.com
+  rules:
+    - host: telecom.local
+      http:
+        paths:
+          - path: /customer
+            pathType: Prefix
+            backend:
+              service:
+                name: customer-service
+                port:
+                  number: 8082

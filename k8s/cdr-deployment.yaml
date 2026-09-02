@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cdr-service
+  namespace: telecom
+  labels:
+    app: cdr-service
+
+spec:
+  replicas: 1
+
+  strategy:
+    type: Recreate
+
+  selector:
+    matchLabels:
+      app: cdr-service
+
+  template:
+    metadata:
+      labels:
+        app: cdr-service
+
+    spec:
+      containers:
+        - name: cdr-service
+          image: acrtelecomossbss01.azurecr.io/cdr-service:1.0.0
+
+          ports:
+            - containerPort: 8081
+
+          envFrom:
+            - configMapRef:
+                name: telecom-config
+            - secretRef:
+                name: telecom-secret
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 60
+            periodSeconds: 20

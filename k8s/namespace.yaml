@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: telecom
+  labels:
+    app: telecom-ossbss
+    environment: dev
