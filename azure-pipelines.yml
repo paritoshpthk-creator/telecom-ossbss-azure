@@ -1,3 +1,4 @@
+```yaml
 trigger:
   branches:
     include:
@@ -10,7 +11,6 @@ pr:
 
 variables:
   acrLoginServer: 'acrtelecomossbss01.azurecr.io'
-  acrName: 'acrtelecomossbss01'
   imageTag: '$(Build.BuildId)'
 
   aksResourceGroup: 'rg-telecom-ossbss-dev'
@@ -23,26 +23,31 @@ pool:
 stages:
 
 # ============================================================
-# STAGE 1 - BUILD & TEST
+# STAGE 1 - BUILD AND TEST
 # ============================================================
 - stage: Build
   displayName: 'Build and Test'
+
   jobs:
   - job: MavenBuild
-    displayName: 'Maven Build'
+    displayName: 'Maven Build and Test'
+
     steps:
 
     - checkout: self
 
     - task: JavaToolInstaller@0
-      displayName: 'Install Java 17'
+      displayName: 'Use Java 17'
       inputs:
         versionSpec: '17'
         jdkArchitectureOption: 'x64'
         jdkSourceOption: 'PreInstalled'
 
     - script: |
+        echo "===== JAVA VERSION ====="
         java -version
+
+        echo "===== MAVEN VERSION ====="
         mvn -version
       displayName: 'Verify Java and Maven'
 
@@ -50,12 +55,16 @@ stages:
         mvn clean test package
       displayName: 'Maven Build and Tests'
 
+
 # ============================================================
-# STAGE 2 - DOCKER BUILD & PUSH
+# STAGE 2 - BUILD AND PUSH DOCKER IMAGES
 # ============================================================
 - stage: Docker
   displayName: 'Build and Push Docker Images'
-  dependsOn: Build
+
+  dependsOn:
+    - Build
+
   condition: succeeded()
 
   jobs:
@@ -66,36 +75,79 @@ stages:
 
     - checkout: self
 
-    # Build JAR files again because this is a fresh agent
+    # --------------------------------------------------------
+    # Java 17
+    # --------------------------------------------------------
     - task: JavaToolInstaller@0
-      displayName: 'Install Java 17'
+      displayName: 'Use Java 17'
       inputs:
         versionSpec: '17'
         jdkArchitectureOption: 'x64'
         jdkSourceOption: 'PreInstalled'
 
+    # --------------------------------------------------------
+    # Build JAR files
+    #
+    # Docker stage runs on a fresh agent, therefore Maven must
+    # run again here because target/*.jar does not persist
+    # automatically between jobs.
+    # --------------------------------------------------------
     - script: |
+        echo "===== JAVA VERSION ====="
         java -version
+
+        echo "===== MAVEN VERSION ====="
         mvn -version
+
+        echo "===== BUILDING JARS ====="
         mvn clean package -DskipTests
       displayName: 'Build JAR Files'
 
-    # Verify JAR files before Docker build
+
+    # --------------------------------------------------------
+    # Verify JAR files
+    # --------------------------------------------------------
     - script: |
-        echo "Billing JAR:"
+        echo "=========================================="
+        echo "BILLING SERVICE"
+        echo "=========================================="
+
         ls -lh src/billing-service/target/
 
-        echo "CDR JAR:"
+        test -f src/billing-service/target/billing-service-1.0.0.jar
+
+
+        echo "=========================================="
+        echo "CDR SERVICE"
+        echo "=========================================="
+
         ls -lh src/cdr-service/target/
 
-        echo "Customer JAR:"
+        test -f src/cdr-service/target/cdr-service-1.0.0.jar
+
+
+        echo "=========================================="
+        echo "CUSTOMER SERVICE"
+        echo "=========================================="
+
         ls -lh src/customer-service/target/
+
+        test -f src/customer-service/target/customer-service-1.0.0.jar
+
+
+        echo "=========================================="
+        echo "ALL JAR FILES FOUND"
+        echo "=========================================="
       displayName: 'Verify JAR Files'
 
+
+    # --------------------------------------------------------
+    # Billing Docker Image
+    # --------------------------------------------------------
     - task: Docker@2
       displayName: 'Build and Push Billing Image'
       inputs:
-        command: buildAndPush
+        command: 'buildAndPush'
         containerRegistry: 'ACR-Service-Connection'
         repository: 'billing-service'
         Dockerfile: 'src/billing-service/Dockerfile'
@@ -104,10 +156,14 @@ stages:
           $(imageTag)
           latest
 
+
+    # --------------------------------------------------------
+    # CDR Docker Image
+    # --------------------------------------------------------
     - task: Docker@2
       displayName: 'Build and Push CDR Image'
       inputs:
-        command: buildAndPush
+        command: 'buildAndPush'
         containerRegistry: 'ACR-Service-Connection'
         repository: 'cdr-service'
         Dockerfile: 'src/cdr-service/Dockerfile'
@@ -116,34 +172,52 @@ stages:
           $(imageTag)
           latest
 
+
+    # --------------------------------------------------------
+    # Customer Docker Image
+    # --------------------------------------------------------
     - task: Docker@2
       displayName: 'Build and Push Customer Image'
       inputs:
-        command: buildAndPush
+        command: 'buildAndPush'
         containerRegistry: 'ACR-Service-Connection'
         repository: 'customer-service'
         Dockerfile: 'src/customer-service/Dockerfile'
         buildContext: 'src/customer-service'
         tags: |
           $(imageTag)
-          latest# ============================================================
+          latest
+
+
+# ============================================================
 # STAGE 3 - DEPLOY TO AKS
 # ============================================================
 - stage: Deploy
   displayName: 'Deploy to AKS'
-  dependsOn: Docker
+
+  dependsOn:
+    - Docker
+
   condition: succeeded()
+
   jobs:
   - deployment: AKSDeployment
     displayName: 'Deploy Telecom OSS/BSS'
+
     environment: 'telecom-aks'
+
     strategy:
       runOnce:
         deploy:
+
           steps:
 
           - checkout: self
 
+
+          # --------------------------------------------------
+          # Namespace / ConfigMap / Secret / Billing
+          # --------------------------------------------------
           - task: KubernetesManifest@1
             displayName: 'Deploy Billing Service'
             inputs:
@@ -153,15 +227,21 @@ stages:
               azureResourceGroup: '$(aksResourceGroup)'
               kubernetesCluster: '$(aksClusterName)'
               namespace: '$(kubernetesNamespace)'
+
               manifests: |
                 k8s/namespace.yaml
                 k8s/configmap.yaml
                 k8s/secret.yaml
                 k8s/billing-deployment.yaml
                 k8s/billing-service.yaml
+
               containers: |
                 $(acrLoginServer)/billing-service:$(imageTag)
 
+
+          # --------------------------------------------------
+          # CDR
+          # --------------------------------------------------
           - task: KubernetesManifest@1
             displayName: 'Deploy CDR Service'
             inputs:
@@ -171,12 +251,18 @@ stages:
               azureResourceGroup: '$(aksResourceGroup)'
               kubernetesCluster: '$(aksClusterName)'
               namespace: '$(kubernetesNamespace)'
+
               manifests: |
                 k8s/cdr-deployment.yaml
                 k8s/cdr-service.yaml
+
               containers: |
                 $(acrLoginServer)/cdr-service:$(imageTag)
 
+
+          # --------------------------------------------------
+          # Customer
+          # --------------------------------------------------
           - task: KubernetesManifest@1
             displayName: 'Deploy Customer Service'
             inputs:
@@ -186,12 +272,18 @@ stages:
               azureResourceGroup: '$(aksResourceGroup)'
               kubernetesCluster: '$(aksClusterName)'
               namespace: '$(kubernetesNamespace)'
+
               manifests: |
                 k8s/customer-deployment.yaml
                 k8s/customer-service.yaml
+
               containers: |
                 $(acrLoginServer)/customer-service:$(imageTag)
 
+
+          # --------------------------------------------------
+          # Ingress
+          # --------------------------------------------------
           - task: KubernetesManifest@1
             displayName: 'Deploy Ingress'
             inputs:
@@ -201,21 +293,34 @@ stages:
               azureResourceGroup: '$(aksResourceGroup)'
               kubernetesCluster: '$(aksClusterName)'
               namespace: '$(kubernetesNamespace)'
+
               manifests: |
                 k8s/ingress.yaml
 
+
 # ============================================================
-# STAGE 4 - VERIFY
+# STAGE 4 - VERIFY AKS
 # ============================================================
 - stage: Verify
-  displayName: 'Verify Deployment'
-  dependsOn: Deploy
+  displayName: 'Verify AKS Deployment'
+
+  dependsOn:
+    - Deploy
+
   condition: succeeded()
+
   jobs:
   - job: VerifyAKS
     displayName: 'Verify AKS Workloads'
+
     steps:
 
+    - checkout: self
+
+
+    # --------------------------------------------------------
+    # Pods
+    # --------------------------------------------------------
     - task: Kubernetes@1
       displayName: 'Check Pods'
       inputs:
@@ -226,6 +331,10 @@ stages:
         command: 'get'
         arguments: 'pods -n $(kubernetesNamespace) -o wide'
 
+
+    # --------------------------------------------------------
+    # Services
+    # --------------------------------------------------------
     - task: Kubernetes@1
       displayName: 'Check Services'
       inputs:
@@ -236,6 +345,10 @@ stages:
         command: 'get'
         arguments: 'svc -n $(kubernetesNamespace)'
 
+
+    # --------------------------------------------------------
+    # Ingress
+    # --------------------------------------------------------
     - task: Kubernetes@1
       displayName: 'Check Ingress'
       inputs:
@@ -245,3 +358,4 @@ stages:
         kubernetesCluster: '$(aksClusterName)'
         command: 'get'
         arguments: 'ingress -n $(kubernetesNamespace)'
+```
