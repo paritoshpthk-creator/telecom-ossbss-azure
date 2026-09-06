@@ -1,0 +1,18 @@
+Problem:
+ResourceGroupNotFound
+
+Error:
+rg-telecom-tfstate not found
+
+Cause:
+Terraform backend/state storage referenced a resource
+group that did not exist.
+
+Resolution:
+Create/restore the backend resource or correct the
+backend configuration.
+
+Validation:
+terraform init
+terraform validate
+terraform plan
