@@ -1,0 +1,106 @@
+                         INTERNET / USER
+                                │
+                                ▼
+                       ┌─────────────────┐
+                       │ Kubernetes      │
+                       │ Ingress         │
+                       └────────┬────────┘
+                                │
+              ┌─────────────────┼─────────────────┐
+              │                 │                 │
+              ▼                 ▼                 ▼
+       ┌────────────┐    ┌────────────┐    ┌────────────┐
+       │ Billing    │    │ CDR        │    │ Customer   │
+       │ Service    │    │ Service    │    │ Service    │
+       └────────────┘    └────────────┘    └────────────┘
+              │                 │                 │
+              └─────────────────┼─────────────────┘
+                                │
+                                ▼
+                         AKS Cluster
+                                │
+                                ▼
+                         Azure Network
+
+DevOps CI/CD
+
+Developer
+   │
+   │ git push
+   ▼
+GitHub
+   │
+   ▼
+Azure DevOps Pipeline
+   │
+   ├───────────────┐
+   ▼               ▼
+Maven Build     Unit Tests
+   │               │
+   └───────┬───────┘
+           ▼
+      Docker Build
+           │
+           ▼
+         ACR
+           │
+           ▼
+          AKS
+           │
+           ▼
+    Kubernetes Deploy
+           │
+           ▼
+       Verification
+
+Azure infrastructure
+
+
+
+
+Azure Subscription
+│
+└── Resource Group
+    │
+    ├── Virtual Network
+    │   ├── AKS Subnet
+    │   └── Supporting subnet(s)
+    │
+    ├── AKS
+    │   └── Node Pool
+    │       └── Kubernetes Pods
+    │
+    ├── Azure Container Registry
+    │
+    └── Log Analytics
+        └── Container Insights
+
+
+
+Application request flow
+
+Client
+  │
+  │ HTTP request
+  ▼
+Ingress
+  │
+  │ /billing
+  ▼
+Billing Service
+  │
+  ▼
+Billing Pod
+  │
+  ▼
+Spring Boot Application
+  │
+  ▼
+Response
+  │
+  ▲
+  │
+Ingress
+  │
+  ▲
+Client
